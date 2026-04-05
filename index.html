@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>File Viewer</title>
+  <style>
+    :root {
+      --bg: #f7f7f8;
+      --panel: #ffffff;
+      --line: #e5e7eb;
+      --text: #111827;
+      --muted: #6b7280;
+      --hover: #f3f4f6;
+      --shadow: 0 1px 2px rgba(0,0,0,.04);
+      --radius: 16px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: Arial, Helvetica, sans-serif; }
+    a { color: inherit; text-decoration: none; }
+    button, select, input { font: inherit; }
+    .app { max-width: 1400px; margin: 0 auto; padding: 16px; }
+    .topbar, .toolbar, .crumbs, .status { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+    .topbar { padding: 14px 16px; margin-bottom: 12px; justify-content: space-between; }
+    .title { display: flex; flex-direction: column; gap: 4px; }
+    .title h1 { margin: 0; font-size: 18px; font-weight: 700; }
+    .title p { margin: 0; color: var(--muted); font-size: 13px; }
+    .toolbar { padding: 12px 16px; margin-bottom: 12px; }
+    .crumbs { padding: 10px 16px; margin-bottom: 12px; font-size: 14px; color: var(--muted); }
+    .crumbs button { border: 0; background: transparent; color: var(--text); padding: 0; cursor: pointer; }
+    .crumbs button:hover { text-decoration: underline; }
+    .input, .select, .btn { border: 1px solid var(--line); background: white; border-radius: 12px; padding: 10px 12px; }
+    .input { min-width: 240px; flex: 1; }
+    .btn { cursor: pointer; }
+    .btn:hover, .select:hover { background: var(--hover); }
+    .toggle { display: inline-flex; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; }
+    .toggle button { border: 0; background: white; padding: 10px 12px; cursor: pointer; }
+    .toggle button.active { background: #111827; color: white; }
+    .content { min-height: 300px; }
+    .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+    .list { display: flex; flex-direction: column; gap: 8px; }
+    .card, .row { border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+    .card { display: flex; flex-direction: column; }
+    .card .preview { min-height: 160px; display: flex; align-items: center; justify-content: center; background: #fafafa; border-bottom: 1px solid var(--line); }
+    .card .meta, .row { padding: 12px; }
+    .row { display: flex; align-items: center; gap: 12px; }
+    .iconBox { width: 42px; height: 42px; border-radius: 12px; background: #f3f4f6; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+    .name { font-size: 14px; font-weight: 700; word-break: break-word; }
+    .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    .linkBtn { display: inline-flex; align-items: center; justify-content: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: white; font-size: 13px; cursor: pointer; }
+    .linkBtn:hover { background: var(--hover); }
+    .empty, .error { padding: 24px; text-align: center; color: var(--muted); }
+    .error { color: #991b1b; background: #fef2f2; border: 1px solid #fecaca; border-radius: var(--radius); }
+    img.previewImg { max-width: 100%; max-height: 260px; object-fit: contain; display: block; }
+    audio { width: 100%; }
+    .fileTree { display: flex; gap: 16px; align-items: flex-start; }
+    .sidebar { width: 280px; flex: 0 0 280px; padding: 12px; }
+    .main { flex: 1; min-width: 0; }
+    .tree { list-style: none; padding: 0; margin: 0; font-size: 14px; }
+    .tree li { margin: 0; }
+    .tree button { width: 100%; text-align: left; border: 0; background: transparent; padding: 8px 10px; border-radius: 10px; cursor: pointer; }
+    .tree button:hover { background: var(--hover); }
+    .tree .folder { font-weight: 700; }
+    .tree .child { padding-left: 16px; }
+    .small { font-size: 12px; color: var(--muted); }
+    @media (max-width: 900px) {
+      .fileTree { flex-direction: column; }
+      .sidebar { width: 100%; flex-basis: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar panel">
+      <div class="title">
+        <h1>File Viewer</h1>
+        <p>Static browser for files stored in <code>root/</code></p>
+      </div>
+      <div class="small" id="countLabel">Loading…</div>
+    </div>
+
+    <div class="toolbar panel">
+      <input id="search" class="input" type="search" placeholder="Search files and folders" />
+      <select id="sortBy" class="select">
+        <option value="name">Sort by name</option>
+        <option value="type">Sort by type</option>
+        <option value="size">Sort by size</option>
+        <option value="modified">Sort by modified</option>
+      </select>
+      <button id="sortDir" class="btn">Ascending</button>
+      <select id="filterBy" class="select">
+        <option value="all">All files</option>
+        <option value="folders">Folders only</option>
+        <option value="images">Images</option>
+        <option value="audio">Audio</option>
+        <option value="other">Other</option>
+      </select>
+      <div class="toggle" aria-label="View mode">
+        <button data-view="grid" class="active">Grid</button>
+        <button data-view="list">List</button>
+        <button data-view="rows">Rows</button>
+      </div>
+      <label class="small" style="display:flex; align-items:center; gap:8px;">
+        Size
+        <input id="cardSize" type="range" min="140" max="280" step="10" value="180" />
+      </label>
+      <button id="reload" class="btn">Reload</button>
+    </div>
+
+    <div class="crumbs panel" id="crumbs"></div>
+
+    <div class="fileTree">
+      <aside class="panel sidebar">
+        <div class="name" style="margin-bottom:8px;">Folders</div>
+        <div class="small" style="margin-bottom:10px;">Click a folder to browse it.</div>
+        <ul class="tree" id="folderTree"></ul>
+      </aside>
+
+      <main class="main panel" style="padding: 16px;">
+        <div class="status small" id="status"></div>
+        <div id="content" class="content"></div>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const MANIFEST_URLS = ["./root/manifest.json", "./root/index.json"];
+
+    const state = {
+      items: [],
+      currentFolder: "root",
+      search: "",
+      sortBy: "name",
+      sortDir: 1,
+      filterBy: "all",
+      view: "grid",
+      cardSize: 180,
+    };
+
+    const el = {
+      content: document.getElementById("content"),
+      status: document.getElementById("status"),
+      countLabel: document.getElementById("countLabel"),
+      search: document.getElementById("search"),
+      sortBy: document.getElementById("sortBy"),
+      sortDir: document.getElementById("sortDir"),
+      filterBy: document.getElementById("filterBy"),
+      cardSize: document.getElementById("cardSize"),
+      crumbs: document.getElementById("crumbs"),
+      folderTree: document.getElementById("folderTree"),
+      reload: document.getElementById("reload"),
+      viewButtons: [...document.querySelectorAll(".toggle button")],
+    };
+
+    function normalize(raw, index) {
+      const path = String(raw.path || raw.url || raw.file || "").replace(/^\.\/?/, "");
+      const name = String(raw.name || path.split("/").filter(Boolean).pop() || `item-${index}`);
+      const ext = (name.split(".").pop() || "").toLowerCase();
+      const mime = String(raw.mime || raw.type || "").toLowerCase();
+      const size = Number(raw.size ?? raw.bytes ?? 0) || 0;
+      const modified = raw.modified || raw.mtime || raw.updatedAt || raw.date || null;
+      return { id: raw.id || `${path}-${index}`, path, name, ext, mime, size, modified };
+    }
+
+    function isImage(item) {
+      return item.mime.startsWith("image/") || ["png","jpg","jpeg","jfif","jpe","gif","webp","bmp","svg","heic","heif","avif"].includes(item.ext);
+    }
+
+    function isAudio(item) {
+      return item.mime.startsWith("audio/") || ["mp3","wav","m4a","flac","aac","ogg","oga","opus","weba","aiff","aif","mid","midi"].includes(item.ext);
+    }
+
+    function fmtSize(bytes) {
+      if (!bytes && bytes !== 0) return "—";
+      if (bytes < 1024) return `${bytes} B`;
+      const units = ["KB", "MB", "GB", "TB"];
+      let value = bytes / 1024;
+      let i = 0;
+      while (value >= 1024 && i < units.length - 1) {
+        value /= 1024;
+        i += 1;
+      }
+      return `${value.toFixed(value < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
+    }
+
+    function fmtDate(value) {
+      if (!value) return "—";
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return String(value);
+      return new Intl.DateTimeFormat(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(d);
+    }
+
+    function fileIcon(item) {
+      if (item.isFolder) return "📁";
+      if (isImage(item)) return "🖼";
+      if (isAudio(item)) return "🎵";
+      return "📄";
+    }
+
+    function compare(a, b) {
+      let result = 0;
+      if (state.sortBy === "size") result = (a.size || 0) - (b.size || 0);
+      else if (state.sortBy === "modified") result = new Date(a.modified || 0).getTime() - new Date(b.modified || 0).getTime();
+      else if (state.sortBy === "type") result = (a.ext || "").localeCompare(b.ext || "") || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+      else result = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+      return result * state.sortDir;
+    }
+
+    function toSegments(path) {
+      return String(path || "").replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
+    }
+
+    function pathDepth(path) {
+      return toSegments(path).length;
+    }
+
+    function buildTree(items) {
+      const root = { name: "root", path: "root", folders: new Map(), files: [] };
+      for (const item of items) {
+        const segs = toSegments(item.path || item.name);
+        if (!segs.length) continue;
+        let node = root;
+        for (let i = 0; i < segs.length - 1; i++) {
+          const part = segs[i];
+          if (!node.folders.has(part)) {
+            const nextPath = node.path ? `${node.path}/${part}` : part;
+            node.folders.set(part, { name: part, path: nextPath, folders: new Map(), files: [] });
+          }
+          node = node.folders.get(part);
+        }
+        node.files.push(item);
+      }
+      return root;
+    }
+
+    function findFolderNode(tree, targetPath) {
+      const segs = toSegments(targetPath);
+      let node = tree;
+      for (const seg of segs) {
+        node = node.folders.get(seg);
+        if (!node) return null;
+      }
+      return node;
+    }
+
+    function listVisibleInFolder(folderPath) {
+      const tree = buildTree(state.items);
+      const node = findFolderNode(tree, folderPath);
+      if (!node) return { folders: [], files: [] };
+
+      const folders = [...node.folders.values()].map((folder) => ({
+        isFolder: true,
+        name: folder.name,
+        path: folder.path,
+        ext: "",
+        mime: "",
+        size: 0,
+        modified: null,
+      }));
+
+      const files = node.files.map((item) => ({ ...item, isFolder: false }));
+      return { folders, files };
+    }
+
+    function matchesFilter(item) {
+      if (state.filterBy === "folders") return item.isFolder;
+      if (state.filterBy === "images") return !item.isFolder && isImage(item);
+      if (state.filterBy === "audio") return !item.isFolder && isAudio(item);
+      if (state.filterBy === "other") return !item.isFolder && !isImage(item) && !isAudio(item);
+      return true;
+    }
+
+    function renderCrumbs() {
+      const segs = toSegments(state.currentFolder);
+      const crumbs = [{ label: "root", path: "root" }];
+      let acc = "root";
+      for (let i = 1; i < segs.length; i++) {
+        acc = `${acc}/${segs[i]}`;
+        crumbs.push({ label: segs[i], path: acc });
+      }
+      el.crumbs.innerHTML = crumbs.map((c, i) => `
+        <button data-path="${c.path}">${c.label}</button>${i < crumbs.length - 1 ? `<span>›</span>` : ``}
+      `).join("");
+      el.crumbs.querySelectorAll("button[data-path]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          state.currentFolder = btn.dataset.path;
+          render();
+        });
+      });
+    }
+
+    function renderTree() {
+      const tree = buildTree(state.items);
+      const folderRoot = tree.folders.get("root");
+      const start = folderRoot || tree;
+
+      function walk(node) {
+        const li = document.createElement("li");
+        const btn = document.createElement("button");
+        btn.className = "folder";
+        btn.textContent = node.path || node.name;
+        btn.dataset.path = node.path;
+        btn.addEventListener("click", () => {
+          state.currentFolder = node.path;
+          render();
+        });
+        li.appendChild(btn);
+
+        const children = [...node.folders.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+        if (children.length) {
+          const ul = document.createElement("ul");
+          ul.className = "tree child";
+          for (const child of children) ul.appendChild(walk(child));
+          li.appendChild(ul);
+        }
+        return li;
+      }
+
+      el.folderTree.innerHTML = "";
+      if (!start) {
+        const empty = document.createElement("li");
+        empty.textContent = "No folders yet.";
+        el.folderTree.appendChild(empty);
+        return;
+      }
+      el.folderTree.appendChild(walk(start));
+    }
+
+    function renderContent() {
+      const { folders, files } = listVisibleInFolder(state.currentFolder);
+      let list = [...folders, ...files].filter(matchesFilter);
+      const q = state.search.trim().toLowerCase();
+      if (q) {
+        list = list.filter(item => (item.name || "").toLowerCase().includes(q) || (item.path || "").toLowerCase().includes(q));
+      }
+      list.sort((a, b) => {
+        if (a.isFolder && !b.isFolder) return -1;
+        if (!a.isFolder && b.isFolder) return 1;
+        return compare(a, b);
+      });
+
+      el.countLabel.textContent = `${list.length} item${list.length === 1 ? "" : "s"}`;
+      el.status.textContent = `Current folder: ${state.currentFolder}`;
+
+      if (!list.length) {
+        el.content.innerHTML = `<div class="empty">No files match this folder or filter.</div>`;
+        return;
+      }
+
+      if (state.view === "list") {
+        el.content.innerHTML = `<div class="list">${list.map(renderRow).join("")}</div>`;
+      } else {
+        const gridStyle = state.view === "rows"
+          ? "grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));"
+          : `grid-template-columns: repeat(auto-fill, minmax(${state.cardSize}px, 1fr));`;
+        el.content.innerHTML = `<div class="grid" style="${gridStyle}">${list.map(renderCard).join("")}</div>`;
+      }
+
+      wireItemActions();
+    }
+
+    function fileOpenUrl(item) {
+      return item.path || item.url || item.file || "#";
+    }
+
+    function renderCard(item) {
+      const openLabel = item.isFolder ? "Open folder" : "Open";
+      const preview = item.isFolder
+        ? `<div class="preview"><div class="iconBox" style="width:60px;height:60px;font-size:28px;">📁</div></div>`
+        : isImage(item)
+          ? `<div class="preview"><img class="previewImg" src="${fileOpenUrl(item)}" alt="${escapeHtml(item.name)}" loading="lazy"></div>`
+          : isAudio(item)
+            ? `<div class="preview" style="padding:12px;"><audio controls preload="none"><source src="${fileOpenUrl(item)}"></audio></div>`
+            : `<div class="preview"><div class="iconBox" style="width:60px;height:60px;font-size:28px;">${fileIcon(item)}</div></div>`;
+
+      return `
+        <article class="card">
+          ${preview}
+          <div class="meta">
+            <div class="name">${escapeHtml(item.name)}</div>
+            <div class="sub">${item.isFolder ? "Folder" : `${item.ext || "file"} • ${fmtSize(item.size)} • ${fmtDate(item.modified)}`}</div>
+            <div class="actions">
+              <button class="linkBtn openBtn" data-action="open" data-path="${escapeAttr(item.path)}" data-folder="${item.isFolder ? "1" : "0"}">${openLabel}</button>
+              ${item.isFolder ? "" : `<a class="linkBtn" href="${escapeAttr(fileOpenUrl(item))}" download>Download</a>`}
+            </div>
+          </div>
+        </article>
+      `;
+    }
+
+    function renderRow(item) {
+      const details = item.isFolder ? "Folder" : `${item.ext || "file"} • ${fmtSize(item.size)} • ${fmtDate(item.modified)}`;
+      return `
+        <div class="row">
+          <div class="iconBox">${fileIcon(item)}</div>
+          <div style="flex:1; min-width:0;">
+            <div class="name">${escapeHtml(item.name)}</div>
+            <div class="sub">${escapeHtml(details)}</div>
+          </div>
+          <div class="actions" style="margin-top:0;">
+            <button class="linkBtn openBtn" data-action="open" data-path="${escapeAttr(item.path)}" data-folder="${item.isFolder ? "1" : "0"}">${item.isFolder ? "Open folder" : "Open"}</button>
+            ${item.isFolder ? "" : `<a class="linkBtn" href="${escapeAttr(fileOpenUrl(item))}" download>Download</a>`}
+          </div>
+        </div>
+      `;
+    }
+
+    function wireItemActions() {
+      document.querySelectorAll(".openBtn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const path = btn.dataset.path;
+          const isFolder = btn.dataset.folder === "1";
+          if (isFolder) {
+            state.currentFolder = path;
+            render();
+          } else {
+            window.open(path, "_blank", "noopener,noreferrer");
+          }
+        });
+      });
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    function escapeAttr(str) {
+      return escapeHtml(str).replaceAll("'", "&#39;");
+    }
+
+    async function loadManifest() {
+      for (const url of MANIFEST_URLS) {
+        try {
+          const res = await fetch(url, { cache: "no-store" });
+          if (!res.ok) continue;
+          const data = await res.json();
+          const list = Array.isArray(data) ? data : Array.isArray(data.items) ? data.items : Array.isArray(data.files) ? data.files : [];
+          if (!list.length) continue;
+          state.items = list.map(normalize).filter(item => item.path || item.name);
+          state.currentFolder = "root";
+          return { ok: true, url };
+        } catch (err) {
+          // try next url
+        }
+      }
+      return { ok: false };
+    }
+
+    async function render() {
+      renderCrumbs();
+      renderTree();
+      renderContent();
+    }
+
+    function initEvents() {
+      el.search.addEventListener("input", () => { state.search = el.search.value; renderContent(); });
+      el.sortBy.addEventListener("change", () => { state.sortBy = el.sortBy.value; renderContent(); });
+      el.sortDir.addEventListener("click", () => {
+        state.sortDir *= -1;
+        el.sortDir.textContent = state.sortDir === 1 ? "Ascending" : "Descending";
+        renderContent();
+      });
+      el.filterBy.addEventListener("change", () => { state.filterBy = el.filterBy.value; renderContent(); });
+      el.cardSize.addEventListener("input", () => { state.cardSize = Number(el.cardSize.value); if (state.view !== "list") renderContent(); });
+      el.reload.addEventListener("click", async () => { await boot(); });
+      el.viewButtons.forEach(btn => {
+        btn.addEventListener("click", () => {
+          state.view = btn.dataset.view;
+          el.viewButtons.forEach(b => b.classList.toggle("active", b === btn));
+          renderContent();
+        });
+      });
+    }
+
+    async function boot() {
+      el.status.textContent = "Loading manifest…";
+      el.content.innerHTML = `<div class="empty">Loading…</div>`;
+      const result = await loadManifest();
+      if (!result.ok) {
+        el.countLabel.textContent = "0 items";
+        el.status.innerHTML = "";
+        el.content.innerHTML = `
+          <div class="error">
+            <div style="font-weight:700; margin-bottom:8px;">No manifest found.</div>
+            <div>Place a JSON file at <code>root/manifest.json</code> or <code>root/index.json</code>.</div>
+            <div style="margin-top:10px; color:#7f1d1d;">Example: <code>[{"path":"root/photos/image.jpg","size":1234,"modified":"2026-04-05T12:00:00Z"}]</code></div>
+          </div>`;
+        renderTree();
+        return;
+      }
+      await render();
+    }
+
+    initEvents();
+    boot();
+  </script>
+</body>
+</html>
